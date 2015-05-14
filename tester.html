@@ -1,0 +1,293 @@
+<html>
+	<head>
+			<link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.4/js/bootstrap.min.js"></link>
+		    <script src="./js/lib/react.min.js"></script>
+		    <script src="./js/lib/JSXTransformer.js"></script>
+		    <script src="./js/lib/jquery-2.1.1.min.js"></script>
+		    <script src="./js/lib/underscore-min.js"></script>
+		    <script src="./js/lib/brain-0.6.3.js"></script>
+
+		    <script>
+
+		    	var net = new brain.NeuralNetwork();
+
+		    	var testData = {};
+
+		    	$.getJSON("./semeionNet.json", function(data){
+		    		//console.log(data);
+		    		net.fromJSON(data);
+		    	});
+
+		    	$.getJSON("./testdata/semeion_testset.json", function(data){
+			    		//console.log(data);
+			    		testData = data;
+			    	});
+
+
+
+		    	/*function runNet(){
+		    		var pixels = g.state.pixels;
+		    		var vector = [];
+		    		for(var x=0; x<32; x+=4){
+		    			for(var y=31; y>=0; y-=4){
+		    				var sum=0;
+		    				for(var i=x; i<x+4; i++){
+		    					for(var j=y; j<y-4; j--){
+		    						var pix = pixels[i][j];
+		    						if((pix.r + pix.g + pix.b) < 765) {
+		    							sum += 1;
+		    						}
+		    					}
+		    				}
+		    				console.log(x + "," + y + ": " + sum);
+		    				vector.push(sum);
+		    			}
+		    		}
+		    		console.log("input: " + JSON.stringify(vector))
+		    		var output = net.run(vector);
+		    		console.log(output)
+		    		var winner = _.max(_.keys(output), function(k){return output[k]})
+		    		$("#output").html(winner);
+		    	}*/
+
+		    	function runNet(){
+		    		var origCanvas =  document.getElementById('board');
+		    		var origContext = document.getElementById('board').getContext("2d");
+		    		var origImageData =  origContext.getImageData(0,0,origContext.canvas.width,origContext.canvas.height);
+		    		//create another canvas to scale the pixels to 16x16
+		    		var tempCanvas = document.getElementById("yours");
+
+		    		//tempContext.putImageData(origImageData, 0, 0);
+		    		tempCanvas.width=16;
+		    		tempCanvas.height=16;
+		    		var tempContext = tempCanvas.getContext('2d');
+		    		//scale drawn image onto 16x16 sample canvas
+		    		tempContext.drawImage(origCanvas,
+		    			0,
+		    			0,
+		    			origContext.canvas.width,
+		    			origContext.canvas.height,
+		    			0,
+		    			0,
+		    			tempContext.canvas.width,
+		    			tempContext.canvas.height);
+		    		//$(document.body).append(tempCanvas);
+		    		//console.log(tempCanvas);
+		    		//var scaledContext = tempCanvas.getContext('2d');
+		    		//console.log("new dims: w: " + tempContext.canvas.width +" h: " + tempContext.canvas.height);
+		    		var tempImageData = tempContext.getImageData(0,0,tempContext.canvas.width, tempContext.canvas.height).data;
+		    		//console.log("New # of pixels: " + tempImageData.length);
+		    		var vector = [];
+		    		for(var i=0; i<tempImageData.length; i+=4){
+		    			var r = tempImageData[i+1];
+		    			var g = tempImageData[i+2];
+		    			var b = tempImageData[i+3];
+		    			var p = ((r + g + b) < 765) ? 1 : 0;
+						vector.push(p)
+		    		}
+
+		    		//calculate distances
+		    		var distances = {
+		    			'hamming' : [],
+		    			'jaccard' : [],
+		    			'tanimoto': []
+		    		};
+
+		    		for(var ts=0; ts<testData.length; ts++){
+		    			distances.hamming.push(hamming(vector, testData[ts].input));
+		    			distances.jaccard.push(jaccard(vector, testData[ts].input));
+		    			distances.tanimoto.push(tanimoto(vector, testData[ts].input));
+		    		}
+
+
+		    		['hamming', 'jaccard', 'tanimoto'].forEach(function(element, index, array){
+		    			var testRecord = testData[findMin(distances[element]).idx];
+	                  	var sctx = document.getElementById(element).getContext('2d');
+				    	sctx.fillStyle = "rgb(0,0,0)";
+		                for(var p=0; p<256; p++){
+		    				if(testRecord.input[p] == 1){
+			    				sctx.fillRect(p%16, Math.floor(p/16), 1, 1);
+			    			}
+			    		}
+	                  });
+
+		    		//sctx.putImageData(newData,0,0);
+
+		    		/*var pixels = g.state.pixels;
+		    		var vector = [];
+		    		for(var y=0; y<16; y++){
+		    			for(var x=0; x<16; x++){
+		    				var pix = pixels[x][y];
+		    				var p = ((pix.r + pix.g + pix.b) < 765) ? 1 : 0;
+							vector.push(p)
+						}
+		    		}*/
+		    		var output = net.run(vector);
+		    		console.log("input", vector);
+		    		console.log("output", output);
+		    		var winner = output.indexOf(Math.max.apply(null, output));
+		    		$("#output").html(winner);
+		    	}
+
+		    	function reset(){
+		    	  var ctx = document.getElementById('board').getContext('2d');
+		    	  ctx.fillStyle = "rgb(255,255,255)";
+                  ctx.fillRect(0,0,ctx.canvas.width, ctx.canvas.height);
+
+                  ['yours', 'hamming', 'jaccard', 'tanimoto'].forEach(function(element, index, array){
+                  	var sctx = document.getElementById(element).getContext('2d');
+			    	sctx.fillStyle = "rgb(255,255,255)";
+	                sctx.fillRect(0,0,sctx.canvas.width, sctx.canvas.height);
+                  });
+
+		    	}
+
+				function getTestSet(){
+
+			    }
+
+			function hamming(arr1, arr2){
+				if(arr1.length != arr2.length){
+					throw("arrays are different lengths! " + arr1.length + "," + arr2.length);
+				}else{
+					var sum = 0;
+					for(var i=0; i<arr1.length; i++){
+	    				if(arr1[i] ^ arr2[i]){
+	    					sum += 1;
+	    				}
+	    			}
+	    			return sum;
+				}
+
+			}
+
+			function findMin(dist){
+				var lowest = dist[0];
+	    		var lowestIndex = 0;
+	    		for(var d=0; d<dist.length; d++){
+	    			if (dist[d] < lowest){
+	    				lowest = dist[d];
+	    				lowestIndex = d;
+	    			}
+	    		}
+	    		return ({'min':lowest, 'idx':lowestIndex});
+			}
+
+			function jaccard(arr1, arr2){
+				if(arr1.length != arr2.length){
+					throw("arrays are different lengths! " + arr1.length + "," + arr2.length);
+				}else{
+					var bxor = 0;
+					var band = 0;
+					for(var i=0; i<arr1.length; i++){
+	    				if(arr1[i] ^ arr2[i]){
+	    					bxor += 1;
+	    				}else if(arr1[i] && arr2[i]){
+	    					band += 1;
+	    				}
+	    			}
+	    			return (bxor / (bxor + band));
+				}
+
+			}
+
+			function tanimoto(arr1, arr2){
+				if(arr1.length != arr2.length){
+					throw("arrays are different lengths! " + arr1.length + "," + arr2.length);
+				}else{
+					var bor = 0;
+					var band = 0;
+					for(var i=0; i<arr1.length; i++){
+	    				if(arr1[i] || arr2[i]){
+	    					bor += 1;
+	    				}
+	    				if(arr1[i] && arr2[i]){
+	    					band += 1;
+	    				}
+	    			}
+	    			return (-Math.log(band/bor));
+				}
+
+			}
+
+
+			function setPixel(imageData, x, y, r, g, b, a) {
+			    index = (x + y * imageData.width) * 4;
+			    imageData.data[index+0] = r;
+			    imageData.data[index+1] = g;
+			    imageData.data[index+2] = b;
+			    imageData.data[index+3] = a;
+			}
+
+
+			function renderTestSet(){
+				var digits = testData;
+				var canvas = document.getElementById('digits');
+				var canvasWidth = canvas.width;
+				var canvasHeight = canvas.height;
+				var ctx = canvas.getContext('2d');
+
+				var imageData = ctx.createImageData(canvasWidth, canvasHeight);
+
+				for (var d=0; d<digits.length; d++){
+					var digit = digits[d];
+					//console.log(digit);
+					startX = (d*16) % canvasWidth;
+					startY = Math.floor(d*16/canvasWidth)*16;//+ 16 ;
+					var limit = digit["input"].length;
+					//console.log(startX + "," + startY);
+					for(var pixel=0; pixel < limit; pixel++){
+						//var r,g,b;
+						//r=g=b= (1 - digit["input"][pixel]) * 255;
+						ctx.fillStyle = digit["input"][pixel] == 1 ? "rgb(0,0,0)" : "rgb(255,255,255)"
+						var x = startX + (pixel % 16);
+						var y = startY + Math.floor(pixel/16);
+						//console.log("filling pixel " + x + "," + y);
+						ctx.fillRect(x,y,1,1);
+						//setPixel(imageData,x,y,r,g,b,255);
+					}
+				}
+
+				//ctx.putImageData(imageData, 0, 0);
+			}
+
+		    </script>
+
+		    <script type="text/jsx">
+		     /**
+			   * @jsx React.DOM
+			   */
+		    	//var g = React.renderComponent(<Grid width="200" height="200" x="16" y="16"/>, document.getElementById('board'));
+
+		    	//console.log(g);
+		    </script>
+	</head>
+	<body>
+		<div class="container">
+		<div class="row">
+			<canvas id="board" width="200" height="200" style="float:left; border:1px solid black"></canvas>
+			<div id="buttons" style="float:left"class="col-md-2">
+				<button onclick="runNet()">Run</button> <button onclick="reset()">Reset</button>
+			</div>
+			<div id="output" class="col-md-2" style="font-size:200px float:left"></div>
+			<table>
+				<thead><th>yours</th><th>hamming</th><th>jaccard</th><th>tanimoto</th></thead>
+				<tbody>
+					<tr>
+						<td><canvas id="yours" width="16" height="16"></canvas></td>
+						<td><canvas id="hamming" width="16" height="16"></canvas></td>
+						<td><canvas id="jaccard" width="16" height="16"></canvas></td>
+						<td><canvas id="tanimoto" width="16" height="16"></canvas></td>
+					</tr>
+
+			</table>
+
+			<div style="clear:both">hi</div>
+		</div>
+	</div>
+				<button onclick="renderTestSet()">Display Test Set</button><br/>
+			<!--canvas width="320" height="1600" id="digits"-->
+			</div>
+	<script src="./js/lib/drawing.js"></script>
+	</body>
+</html>
